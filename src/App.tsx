@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 
-type Page = 'home' | 'input' | 'chat' | 'finish' | 'result'
+type Page = 'home' | 'chat' | 'finish' | 'result'
+type Message = { role: 'ai' | 'user', text: string }
 
 const worries = [
   '내일 발표 어떡하지', '과제 아직 못 했는데 어떡해', '답장 늦게 하면 싫어할까',
@@ -21,27 +22,22 @@ const questions = [
   {
     line: '에휴... 그 생각이 계속 머릿속을 맴돌고 있구나.',
     question: '만약 생각한 것보다 훨씬 안 좋은 일이 생기면 어떡해?',
-    choices: ['그래도 어떻게든 수습할 수 있을 것 같아', '상상만 해도 너무 무서워', '사실 그렇게까지 될 가능성은 낮아'],
   },
   {
     line: '하이고... 그럴 수도 있지. 그런데 말이야...',
     question: '그 일이 생기면 주변 사람들도 너를 이상하게 볼까?',
-    choices: ['잠깐은 그럴 수도 있겠지', '아무도 나만큼 신경 쓰진 않을 거야', '그래도 한 명쯤은 내 편일 거야'],
   },
   {
     line: '어떡해... 생각할수록 경우의 수가 늘어나네.',
     question: '혹시 지금 놓치고 있는 위험이 또 있지는 않을까?',
-    choices: ['이제 그만 생각해도 될 것 같아', '하나만 더 떠올려 볼래', '내가 통제할 수 있는 것부터 할래'],
   },
   {
     line: '그렇구나... 그런데 그 걱정이 정말 네 잘못이면 어떡해?',
     question: '다음에도 같은 실수를 반복하게 되지는 않을까?',
-    choices: ['다음엔 다르게 해볼 수 있어', '실수는 누구나 해', '아직 일어나지도 않은 일이야'],
   },
   {
     line: '에휴... 여기까지 생각하느라 고생했어.',
     question: '이 걱정을 오늘 하루 종일 더 붙잡고 있어야 할까?',
-    choices: ['이제 놓아줘도 될 것 같아', '딱 10분만 걱정하고 끝낼래', '할 수 있는 작은 행동 하나만 할래'],
   },
 ]
 
@@ -53,17 +49,22 @@ const voiceUrls = [
 
 function App() {
   const [page, setPage] = useState<Page>('home')
-  const [worry, setWorry] = useState('')
-  const [draft, setDraft] = useState('')
+  const [chatDraft, setChatDraft] = useState('')
   const [round, setRound] = useState(0)
   const [showEscape, setShowEscape] = useState(false)
   const [audioStarted, setAudioStarted] = useState(false)
   const [buttonPos, setButtonPos] = useState({ x: 91, y: 8 })
   const [discarded, setDiscarded] = useState<string[]>([])
+  const [messages, setMessages] = useState<Message[]>([
+    { role: 'ai', text: '무슨 일인데... 채팅하듯이 말해봐. 해결은 못 해도 더 걱정은 같이 해줄게.' },
+  ])
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const timerRef = useRef<number | null>(null)
   const audioIndexRef = useRef(0)
+  const chatLogRef = useRef<HTMLDivElement | null>(null)
 
+  const userMessages = messages.filter((message) => message.role === 'user').map((message) => message.text)
+  const worry = userMessages.join(' ')
   const pieces = useMemo(() => worry.trim().split(/\s+/).filter(Boolean), [worry])
   const remaining = pieces.filter((_, index) => !discarded.includes(`${index}`))
   const damage = page === 'chat' ? round + 1 : 0
@@ -77,9 +78,10 @@ function App() {
   useEffect(() => {
     if (page !== 'chat') return
     setShowEscape(false)
+    if (chatDraft.trim()) return
     const timer = window.setTimeout(() => setShowEscape(true), 3000)
     return () => window.clearTimeout(timer)
-  }, [page, round])
+  }, [page, round, chatDraft])
 
   useEffect(() => {
     if (!audioStarted) {
@@ -125,13 +127,36 @@ function App() {
     }
   }, [audioStarted])
 
+  useEffect(() => {
+    if (page !== 'chat') return
+    const node = chatLogRef.current
+    if (!node) return
+    node.scrollTo({ top: node.scrollHeight, behavior: 'smooth' })
+  }, [messages, page])
+
   const beginAudio = () => setAudioStarted(true)
-  const choose = () => {
+  const sendMessage = () => {
+    const content = chatDraft.trim()
+    if (!content) return
+
+    const nextQuestion = questions[round % questions.length]
+    const aiText = `${nextQuestion.line} “${content.length > 26 ? `${content.slice(0, 26)}…` : content}”라니... ${nextQuestion.question}`
+
+    setMessages((old) => [
+      ...old,
+      { role: 'user', text: content },
+      { role: 'ai', text: aiText },
+    ])
+    setChatDraft('')
     setRound((old) => old + 1)
   }
   const moveBgmButton = () => setButtonPos({ x: 8 + Math.random() * 84, y: 7 + Math.random() * 86 })
   const reset = () => {
-    setWorry(''); setDraft(''); setRound(0); setDiscarded([]); navigate('input')
+    setChatDraft('')
+    setRound(0)
+    setDiscarded([])
+    setMessages([{ role: 'ai', text: '무슨 일인데... 채팅하듯이 말해봐. 해결은 못 해도 더 걱정은 같이 해줄게.' }])
+    navigate('chat')
   }
   const downloadResult = () => {
     const canvas = document.createElement('canvas')
@@ -177,25 +202,36 @@ function App() {
           <p className="eyebrow">걱정 무한 증폭 서비스</p>
           <h1>하이고</h1>
           <p className="lead">고민을 해결해주는 척하다가<br />더 걱정하게 만드는 AI 걱정인형</p>
-          <button className="primary" onClick={() => navigate('input')}>내 고민 들어줘</button>
-        </>}
-
-        {page === 'input' && <>
-          <div className="doll"><span>🧸</span><i>무슨 일인데...</i></div>
-          <p className="eyebrow">일단 말해봐</p>
-          <h2>요즘 뭐가 제일 걱정돼?</h2>
-          <textarea autoFocus value={draft} maxLength={160} onChange={(e) => setDraft(e.target.value)} placeholder="고민을 입력하세요... 해결은 못 해드립니다" />
-          <div className="input-meta"><span>{draft.length}/160</span></div>
-          <button className="primary" disabled={!draft.trim()} onClick={() => { setWorry(draft.trim()); navigate('chat') }}>고민 맡기기</button>
+          <button className="primary" onClick={() => navigate('chat')}>고민 있어</button>
         </>}
 
         {page === 'chat' && <div className="chat-card">
+          <div className="chat-topbar">
+            <div className="chat-topbar-meta">
+              <strong>걱정인형</strong>
+              <span>{round + 1}번째 걱정 세트</span>
+            </div>
+            <div className="doll"><span>{damage > 8 ? '🫥' : damage > 3 ? '🫠' : damage > 1 ? '😰' : '🧸'}</span><i>{question.line}</i></div>
+          </div>
           <div className="progress"><span /><b>{round + 1}번째 걱정</b></div>
-          <div className="doll"><span>{damage > 8 ? '🫥' : damage > 3 ? '🫠' : damage > 1 ? '😰' : '🧸'}</span><i>{question.line}</i></div>
-          <p className="your-worry">“{worry}”</p>
-          <h2>{question.question}</h2>
-          <div className="choices">
-            {question.choices.map((choice) => <button key={choice} onClick={choose}>{choice}</button>)}
+          <div className="chat-log" ref={chatLogRef}>
+            {messages.map((message, index) => (
+              <div key={`${message.role}-${index}`} className={`chat-bubble ${message.role}`}>
+                <b>{message.role === 'ai' ? '걱정인형' : '나'}</b>
+                <p>{message.text}</p>
+              </div>
+            ))}
+          </div>
+          <div className="chat-compose">
+            <textarea
+              autoFocus
+              value={chatDraft}
+              maxLength={160}
+              onChange={(e) => setChatDraft(e.target.value)}
+              placeholder="채팅하듯이 지금 걱정을 적어보세요"
+            />
+            <div className="input-meta"><span>{chatDraft.length}/160</span></div>
+            <button className="primary" disabled={!chatDraft.trim()} onClick={sendMessage}>보내기</button>
           </div>
         </div>}
 
